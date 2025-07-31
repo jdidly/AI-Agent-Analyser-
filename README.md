@@ -1,3 +1,4 @@
+
 # Crypto AI Agent Trading System
 
 A sophisticated cryptocurrency trading AI agent that uses machine learning to predict profitable trades based on technical indicators.
@@ -84,3 +85,4 @@ The system tracks:
 ## License
 
 MIT License - see LICENSE file for details.
+=======
