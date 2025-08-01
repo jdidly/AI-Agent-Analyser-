@@ -8,7 +8,7 @@ PERIOD = '1y'
 INTERVAL = '1h'
 
 # Risk Management
-PROFIT_TARGET = 0.02        # 2%
+PROFIT_TARGET = 0.015       # 1.5%
 STOP_LOSS = 0.015          # 1.5%
 RISK_PCT = 0.01            # 1% of capital per trade
 INITIAL_CAPITAL = 10000    # Starting capital

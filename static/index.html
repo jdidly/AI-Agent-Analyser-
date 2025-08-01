@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto AI Agent Simulator</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+        .container { max-width: 700px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #0001; padding: 32px; }
+        h1 { text-align: center; color: #333; }
+        label { display: block; margin-top: 16px; }
+        input, select { width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; border: 1px solid #ccc; }
+        button { margin-top: 24px; width: 100%; padding: 12px; background: #007bff; color: #fff; border: none; border-radius: 4px; font-size: 1.1em; cursor: pointer; }
+        button:disabled { background: #aaa; }
+        .results { margin-top: 32px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background: #f0f0f0; }
+        .error { color: #b00; margin-top: 16px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Crypto AI Agent Simulator</h1>
+    <form id="simForm">
+        <label>Symbols (comma separated):
+            <input type="text" name="symbols" value="BTCUSDT" />
+        </label>
+        <label>Initial Capital ($):
+            <input type="number" name="initial_capital" value="10000" min="1" />
+        </label>
+        <label>Profit Target (%):
+            <input type="number" name="profit_target" value="0.5" step="0.01" min="0.01" />
+        </label>
+        <label>Stop Loss (%):
+            <input type="number" name="stop_loss" value="0.5" step="0.01" min="0.01" />
+        </label>
+        <label>Risk % per Trade:
+            <input type="number" name="risk_pct" value="0.01" step="0.001" min="0.001" max="1" />
+        </label>
+        <label>Commission (decimal):
+            <input type="number" name="commission" value="0.0004" step="0.0001" min="0" />
+        </label>
+        <button type="submit" id="runBtn">Run Simulation</button>
+    </form>
+    <div class="results" id="results"></div>
+    <canvas id="equityChart" style="margin-top:32px; width:100%; max-width:650px; display:none;"></canvas>
+    <canvas id="barChart" style="margin-top:32px; width:100%; max-width:650px; display:none;"></canvas>
+    <div class="error" id="error"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const form = document.getElementById('simForm');
+const resultsDiv = document.getElementById('results');
+const errorDiv = document.getElementById('error');
+const runBtn = document.getElementById('runBtn');
+const equityChart = document.getElementById('equityChart');
+const barChart = document.getElementById('barChart');
+let equityChartInstance = null;
+let barChartInstance = null;
+
+form.onsubmit = async (e) => {
+    e.preventDefault();
+    errorDiv.textContent = '';
+    resultsDiv.innerHTML = '';
+    equityChart.style.display = 'none';
+    barChart.style.display = 'none';
+    if (equityChartInstance) equityChartInstance.destroy();
+    if (barChartInstance) barChartInstance.destroy();
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running...';
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (data.symbols) data.symbols = data.symbols.split(',').map(s => s.trim());
+    for (const k in data) {
+        if (!isNaN(data[k]) && data[k] !== '') data[k] = Number(data[k]);
+    }
+    try {
+        const res = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Simulation failed');
+        if (!json.results.length) {
+            resultsDiv.innerHTML = '<p>No results returned.</p>';
+        } else {
+            let html = '<table><tr>';
+            for (const k of Object.keys(json.results[0])) html += `<th>${k}</th>`;
+            html += '</tr>';
+            for (const row of json.results) {
+                html += '<tr>';
+                for (const k of Object.keys(row)) html += `<td>${row[k]}</td>`;
+                html += '</tr>';
+            }
+            html += '</table>';
+            resultsDiv.innerHTML = html;
+
+            // --- Chart: Equity Curve (if only one symbol) ---
+            if (json.results.length === 1 && json.results[0].symbol) {
+                // Fetch equity curve from backend in future, for now fake with start/end
+                const start = Number(data.initial_capital) || 10000;
+                const end = json.results[0].final_capital;
+                const steps = 20;
+                const eq = Array.from({length: steps+1}, (_,i) => start + (end-start)*i/steps);
+                equityChart.style.display = 'block';
+                equityChartInstance = new Chart(equityChart, {
+                    type: 'line',
+                    data: {
+                        labels: eq.map((_,i)=>`Trade ${i}`),
+                        datasets: [{
+                            label: 'Equity Curve',
+                            data: eq,
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0,123,255,0.1)',
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        plugins: { legend: { display: true } },
+                        scales: { y: { beginAtZero: false } }
+                    }
+                });
+            }
+
+            // --- Chart: Bar chart for win rate, return, sharpe, drawdown ---
+            const barLabels = json.results.map(r => r.symbol || 'Symbol');
+            const winRates = json.results.map(r => r.win_rate_pct);
+            const returns = json.results.map(r => r.total_return_pct);
+            const sharpes = json.results.map(r => r.sharpe);
+            const drawdowns = json.results.map(r => r.max_drawdown_pct);
+            barChart.style.display = 'block';
+            barChartInstance = new Chart(barChart, {
+                type: 'bar',
+                data: {
+                    labels: barLabels,
+                    datasets: [
+                        { label: 'Win Rate (%)', data: winRates, backgroundColor: '#28a745' },
+                        { label: 'Return (%)', data: returns, backgroundColor: '#007bff' },
+                        { label: 'Sharpe', data: sharpes, backgroundColor: '#ffc107' },
+                        { label: 'Max Drawdown (%)', data: drawdowns, backgroundColor: '#dc3545' }
+                    ]
+                },
+                options: {
+                    plugins: { legend: { display: true } },
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+    } catch (err) {
+        errorDiv.textContent = err.message;
+    } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run Simulation';
+    }
+};
+</script>
+</body>
+</html>
